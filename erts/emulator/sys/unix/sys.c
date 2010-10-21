@@ -225,6 +225,8 @@ static void note_child_death(int, int);
 static void* child_waiter(void *);
 #endif
 
+#define SYS_C_BUFFER_SIZE (1 << 23)
+
 /********************* General functions ****************************/
 
 /* This is used by both the drivers and general I/O, must be set early */
@@ -1779,7 +1781,7 @@ static ErlDrvData fd_start(ErlDrvPort port_num, char* name,
 	((opts->read_write & DO_WRITE) && opts->ofd >= max_files))
 	return ERL_DRV_ERROR_GENERAL;
 
-    /*
+    /* 
      * Historical:
      *
      * "Note about nonblocking I/O.
@@ -2037,7 +2039,7 @@ static void outputv(ErlDrvData e, ErlIOVec* ev)
     ev->size += pb;
     if ((sz = driver_sizeq(ix)) > 0) {
 	driver_enqv(ix, ev, 0);
-	if (sz + ev->size >= (1 << 13))
+	if (sz + ev->size >= SYS_C_BUFFER_SIZE)
 	    set_busy_port(ix, 1);
     }
     else {
@@ -2083,7 +2085,7 @@ static void output(ErlDrvData e, char* buf, int len)
     if ((sz = driver_sizeq(ix)) > 0) {
 	driver_enq(ix, lbp, pb);
 	driver_enq(ix, buf, len);
-	if (sz + len + pb >= (1 << 13))
+	if (sz + len + pb >= SYS_C_BUFFER_SIZE) 
 	    set_busy_port(ix, 1);
     }
     else {

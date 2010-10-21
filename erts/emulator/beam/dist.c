@@ -1546,8 +1546,9 @@ dsig_send(ErtsDSigData *dsdp, Eterm ctl, Eterm msg, int force_busy)
 	if (dep->qsize >= ERTS_DE_BUSY_LIMIT)
 	    dep->qflgs |= ERTS_DE_QFLG_BUSY;
 	if (!force_busy && (dep->qflgs & ERTS_DE_QFLG_BUSY)) {
-        erts_fprintf(stderr, "qsize: %d\tprocess flags: %d\tqflags: %d\tsize_obuf: %d\tprev_busy: %d\t!force_busy: %d\tqflg_busy: %d\n",
-                     dep->qsize, dep->flags, dep->qflgs, obuf_size, prev_busy, !force_busy, (dep->qflgs & ERTS_DE_QFLG_BUSY));
+        if(!prev_busy) 
+            erts_fprintf(stderr, "qsize: %d\tsize_obuf: %d\qflg_busy: %d\n",
+                         dep->qsize, obuf_size, (dep->qflgs & ERTS_DE_QFLG_BUSY));
 	    erts_smp_spin_unlock(&dep->qlock);
 
 	    plp = erts_proclist_create(c_p);

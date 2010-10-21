@@ -634,10 +634,10 @@ static int my_strncasecmp(const char *s1, const char *s2, size_t n)
 
 #define INET_DEF_BUFFER     1460        /* default buffer size */
 #define INET_MIN_BUFFER     1           /* internal min buffer */
-#define INET_MAX_BUFFER     (1024*64)   /* internal max buffer */
+#define INET_MAX_BUFFER     (1 << 23) /*(1024*8)*/   /* internal max buffer */
 
 /* Note: INET_HIGH_WATERMARK MUST be less than 2*INET_MAX_BUFFER */
-#define INET_HIGH_WATERMARK (1024*8) /* 8k pending high => busy  */
+#define INET_HIGH_WATERMARK (1 << 23) /*(1024*8)*/ /* 8k pending high => busy  */
 /* Note: INET_LOW_WATERMARK MUST be less than INET_MAX_BUFFER and
 ** less than INET_HIGH_WATERMARK
 */

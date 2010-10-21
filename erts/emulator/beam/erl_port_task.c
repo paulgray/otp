@@ -871,7 +871,7 @@ erts_port_task_execute(ErtsRunQueue *runq, Port **curr_port_pp)
 	    io_tasks_executed++;
 	    break;
 	case ERTS_PORT_TASK_DIST_CMD:
-	    reds += erts_dist_command(pp, 8*CONTEXT_REDS-reds);
+	    reds += erts_dist_command(pp, 11*CONTEXT_REDS-reds);
 	    break;
 	default:
 	    erl_exit(ERTS_ABORT_EXIT,
