@@ -153,10 +153,10 @@ erts_dsig_prepare(ErtsDSigData *dsdp,
     }
     if (no_suspend) {
 	failure = ERTS_DSIG_PREP_CONNECTED;
-	erts_smp_spin_lock(&dep->qlock);
+	erts_smp_mtx_lock(&dep->qlock);
 	if (dep->qflgs & ERTS_DE_QFLG_BUSY)
 	    failure = ERTS_DSIG_PREP_WOULD_SUSPEND;
-	erts_smp_spin_unlock(&dep->qlock);
+	erts_smp_mtx_unlock(&dep->qlock);
 	if (failure == ERTS_DSIG_PREP_WOULD_SUSPEND)
 	    goto fail;
     }

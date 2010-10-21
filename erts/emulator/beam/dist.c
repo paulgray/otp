@@ -160,7 +160,7 @@ Uint erts_dist_cache_size(void)
 static ErtsProcList *
 get_suspended_on_de(DistEntry *dep, Uint32 unset_qflgs)
 {
-    ERTS_SMP_LC_ASSERT(erts_smp_lc_spinlock_is_locked(&dep->qlock));
+    ERTS_SMP_LC_ASSERT(erts_smp_lc_mtx_is_locked(&dep->qlock));
     dep->qflgs &= ~unset_qflgs;
     if (dep->qflgs & ERTS_DE_QFLG_EXIT) {
 	/* No resume when exit has been scheduled */
@@ -453,17 +453,17 @@ int erts_do_net_exits(DistEntry *dep, Eterm reason)
 
 	if (dep->status & ERTS_DE_SFLG_EXITING) {
 #ifdef DEBUG
-	    erts_smp_spin_lock(&dep->qlock);
+	    erts_smp_mtx_lock(&dep->qlock);
 	    ASSERT(dep->qflgs & ERTS_DE_QFLG_EXIT);
-	    erts_smp_spin_unlock(&dep->qlock);
+	    erts_smp_mtx_unlock(&dep->qlock);
 #endif
 	}
 	else {
 	    dep->status |= ERTS_DE_SFLG_EXITING;
-	    erts_smp_spin_lock(&dep->qlock);
+	    erts_smp_mtx_lock(&dep->qlock);
 	    ASSERT(!(dep->qflgs & ERTS_DE_QFLG_EXIT));
 	    dep->qflgs |= ERTS_DE_QFLG_EXIT;
-	    erts_smp_spin_unlock(&dep->qlock);
+	    erts_smp_mtx_unlock(&dep->qlock);
 	}
 
 	erts_smp_de_links_lock(dep);
@@ -577,7 +577,7 @@ static void clear_dist_entry(DistEntry *dep)
     erts_smp_de_links_unlock(dep);
 #endif
 
-    erts_smp_spin_lock(&dep->qlock);
+    erts_smp_mtx_lock(&dep->qlock);
 
     if (!dep->out_queue.last)
 	obuf = dep->finalized_out_queue.first;
@@ -593,7 +593,7 @@ static void clear_dist_entry(DistEntry *dep)
     dep->status = 0;
     suspendees = get_suspended_on_de(dep, ERTS_DE_QFLGS_ALL);
 
-    erts_smp_spin_unlock(&dep->qlock);
+    erts_smp_mtx_unlock(&dep->qlock);
     erts_smp_atomic_set(&dep->dist_cmd_scheduled, 0);
     dep->send = NULL;
     erts_smp_de_rwunlock(dep);
@@ -611,10 +611,10 @@ static void clear_dist_entry(DistEntry *dep)
     }
 
     if (obufsize) {
-	erts_smp_spin_lock(&dep->qlock);
+	erts_smp_mtx_lock(&dep->qlock);
 	ASSERT(dep->qsize >= obufsize);
 	dep->qsize -= obufsize;
-	erts_smp_spin_unlock(&dep->qlock);
+	erts_smp_mtx_unlock(&dep->qlock);
     }
 }
 
@@ -1539,7 +1539,7 @@ dsig_send(ErtsDSigData *dsdp, Eterm ctl, Eterm msg, int force_busy)
     else {
 	ErtsProcList *plp = NULL;
     Sint obuf_size, prev_busy;
-	erts_smp_spin_lock(&dep->qlock);
+	erts_smp_mtx_lock(&dep->qlock);
     obuf_size = size_obuf(obuf);
 	dep->qsize += obuf_size;
     prev_busy = dep->qflgs & ERTS_DE_QFLG_BUSY;
@@ -1547,15 +1547,15 @@ dsig_send(ErtsDSigData *dsdp, Eterm ctl, Eterm msg, int force_busy)
 	    dep->qflgs |= ERTS_DE_QFLG_BUSY;
 	if (!force_busy && (dep->qflgs & ERTS_DE_QFLG_BUSY)) {
         if(!prev_busy) 
-            erts_fprintf(stderr, "qsize: %d\tsize_obuf: %d\qflg_busy: %d\n",
+            erts_fprintf(stderr, "qsize: %d\tsize_obuf: %d\tqflg_busy: %d\n",
                          dep->qsize, obuf_size, (dep->qflgs & ERTS_DE_QFLG_BUSY));
-	    erts_smp_spin_unlock(&dep->qlock);
+	    erts_smp_mtx_unlock(&dep->qlock);
 
 	    plp = erts_proclist_create(c_p);
 	    plp->next = NULL;
 	    erts_suspend(c_p, ERTS_PROC_LOCK_MAIN, NULL);
 	    suspended = 1;
-	    erts_smp_spin_lock(&dep->qlock);
+	    erts_smp_mtx_lock(&dep->qlock);
 	}
 
 	/* Enqueue obuf on dist entry */
@@ -1581,7 +1581,7 @@ dsig_send(ErtsDSigData *dsdp, Eterm ctl, Eterm msg, int force_busy)
 	    }
 	}
 
-	erts_smp_spin_unlock(&dep->qlock);
+	erts_smp_mtx_unlock(&dep->qlock);
 	erts_schedule_dist_command(NULL, dep);
 	erts_smp_de_runlock(dep);
 	
@@ -1714,10 +1714,8 @@ erts_dist_command(Port *prt, int reds_limit)
 {
     Sint reds = ERTS_PORT_REDS_DIST_CMD_START;
     int prt_busy;
-    int de_busy;
     Uint32 status;
     Uint32 flags;
-    Uint32 qflgs;
     Sint obufsize = 0;
     ErtsDistOutputQueue oq, foq;
     DistEntry *dep = prt->dist_entry;
@@ -1752,13 +1750,12 @@ erts_dist_command(Port *prt, int reds_limit)
      * a mess.
      */
 
-    erts_smp_spin_lock(&dep->qlock);
+    erts_smp_mtx_lock(&dep->qlock);
     oq.first = dep->out_queue.first;
     oq.last = dep->out_queue.last;
     dep->out_queue.first = NULL;
     dep->out_queue.last = NULL;
-    qflgs = dep->qflgs;
-    erts_smp_spin_unlock(&dep->qlock);
+    erts_smp_mtx_unlock(&dep->qlock);
 
     foq.first = dep->finalized_out_queue.first;
     foq.last = dep->finalized_out_queue.last;
@@ -1769,20 +1766,8 @@ erts_dist_command(Port *prt, int reds_limit)
 	goto preempted;
 
     prt_busy = (int) (prt->status & ERTS_PORT_SFLG_PORT_BUSY);
-    de_busy = (int) (qflgs & ERTS_DE_QFLG_BUSY);
 
-    if (prt_busy) {
-	if (!de_busy) {
-	    erts_smp_spin_lock(&dep->qlock);
-	    dep->qflgs |= ERTS_DE_QFLG_BUSY;
-
-        erts_fprintf(stderr, "Setting port busy in file %s, line %d\n", __FILE__, __LINE__);
-        /* FIXME here */
-	    erts_smp_spin_unlock(&dep->qlock);
-	    de_busy = 1;
-	}
-    }
-    else if (foq.first) {
+    if(!prt_busy && foq.first) {
 	int preempt = 0;
 	do {
 	    Uint size;
@@ -1800,12 +1785,9 @@ erts_dist_command(Port *prt, int reds_limit)
 	    free_dist_obuf(fob);
 	    preempt = reds > reds_limit || (prt->status & ERTS_PORT_SFLGS_DEAD);
 	    if (prt->status & ERTS_PORT_SFLG_PORT_BUSY) {
-		erts_smp_spin_lock(&dep->qlock);
-		dep->qflgs |= ERTS_DE_QFLG_BUSY;
-		erts_smp_spin_unlock(&dep->qlock);
-        erts_fprintf(stderr, "Setting port and de busy in file %s, line %d\n", __FILE__, __LINE__);
-		de_busy = prt_busy = 1;
-		break;
+            erts_fprintf(stderr, "Setting port and de busy in file %s, line %d\n", __FILE__, __LINE__);
+            prt_busy = 1;
+            break;
 	    }
 	} while (foq.first && !preempt);
 	if (!foq.first)
@@ -1887,13 +1869,10 @@ erts_dist_command(Port *prt, int reds_limit)
 	    free_dist_obuf(fob);
 	    preempt = reds > reds_limit || (prt->status & ERTS_PORT_SFLGS_DEAD);
 	    if (prt->status & ERTS_PORT_SFLG_PORT_BUSY) {
-		erts_smp_spin_lock(&dep->qlock);
-		dep->qflgs |= ERTS_DE_QFLG_BUSY;
-		erts_smp_spin_unlock(&dep->qlock);
-        erts_fprintf(stderr, "Setting port and de busy in file %s, line %d\n", __FILE__, __LINE__);
-		de_busy = prt_busy = 1;
-		if (oq.first && !preempt)
-		    goto finalize_only;
+            erts_fprintf(stderr, "Setting port and de busy in file %s, line %d\n", __FILE__, __LINE__);
+            prt_busy = 1;
+            if (oq.first && !preempt)
+                goto finalize_only;
 	    }
 	}
 
@@ -1918,22 +1897,23 @@ erts_dist_command(Port *prt, int reds_limit)
 	 * dist entry in a non-busy state and resume suspended
 	 * processes.
 	 */
-	erts_smp_spin_lock(&dep->qlock);
+	erts_smp_mtx_lock(&dep->qlock);
 	ASSERT(dep->qsize >= obufsize);
 	dep->qsize -= obufsize;
 	obufsize = 0;
-	if (de_busy && !prt_busy && dep->qsize < ERTS_DE_BUSY_LIMIT) {
+	if (!prt_busy 
+        && (dep->qflgs & ERTS_DE_QFLG_BUSY)
+        && dep->qsize < ERTS_DE_BUSY_LIMIT) {
 	    ErtsProcList *suspendees;
 	    int resumed;
 	    suspendees = get_suspended_on_de(dep, ERTS_DE_QFLG_BUSY);
-	    erts_smp_spin_unlock(&dep->qlock);
+	    erts_smp_mtx_unlock(&dep->qlock);
 
 	    resumed = erts_resume_processes(suspendees);
 	    reds += resumed*ERTS_PORT_REDS_DIST_CMD_RESUMED;
-	    de_busy = 0;
 	}
 	else
-	    erts_smp_spin_unlock(&dep->qlock);
+	    erts_smp_mtx_unlock(&dep->qlock);
     }
 
     ASSERT(!oq.first && !oq.last);
@@ -1942,10 +1922,10 @@ erts_dist_command(Port *prt, int reds_limit)
 
     if (obufsize != 0) {
 	ASSERT(obufsize > 0);
-	erts_smp_spin_lock(&dep->qlock);
+	erts_smp_mtx_lock(&dep->qlock);
 	ASSERT(dep->qsize >= obufsize);
 	dep->qsize -= obufsize;
-	erts_smp_spin_unlock(&dep->qlock);
+	erts_smp_mtx_unlock(&dep->qlock);
     }
 
     ASSERT(foq.first || !foq.last);
@@ -1995,9 +1975,9 @@ erts_dist_command(Port *prt, int reds_limit)
 	foq.last = NULL;
 
 #ifdef DEBUG
-	erts_smp_spin_lock(&dep->qlock);
+	erts_smp_mtx_lock(&dep->qlock);
 	ASSERT(dep->qsize == obufsize);
-	erts_smp_spin_unlock(&dep->qlock);
+	erts_smp_mtx_unlock(&dep->qlock);
 #endif
     }
     else {
@@ -2006,14 +1986,14 @@ erts_dist_command(Port *prt, int reds_limit)
 	     * Unhandle buffers need to be put back first
 	     * in out_queue.
 	     */
-	    erts_smp_spin_lock(&dep->qlock);
+	    erts_smp_mtx_lock(&dep->qlock);
 	    dep->qsize -= obufsize;
 	    obufsize = 0;
 	    oq.last->next = dep->out_queue.first;
 	    dep->out_queue.first = oq.first;
 	    if (!dep->out_queue.last)
 		dep->out_queue.last = oq.last;
-	    erts_smp_spin_unlock(&dep->qlock);
+	    erts_smp_mtx_unlock(&dep->qlock);
 	}
 
 	erts_schedule_dist_command(prt, NULL);
@@ -2037,10 +2017,10 @@ erts_kill_dist_connection(DistEntry *dep, Uint32 connection_id)
 
 	dep->status |= ERTS_DE_SFLG_EXITING;
 
-	erts_smp_spin_lock(&dep->qlock);
+	erts_smp_mtx_lock(&dep->qlock);
 	ASSERT(!(dep->qflgs & ERTS_DE_QFLG_EXIT));
 	dep->qflgs |= ERTS_DE_QFLG_EXIT;
-	erts_smp_spin_unlock(&dep->qlock);
+	erts_smp_mtx_unlock(&dep->qlock);
 
 	erts_schedule_dist_command(NULL, dep);
     }
@@ -2411,13 +2391,13 @@ BIF_RETTYPE setnode_3(BIF_ALIST_3)
 	ErtsProcList *plp = erts_proclist_create(BIF_P);
 	plp->next = NULL;
 	erts_suspend(BIF_P, ERTS_PROC_LOCK_MAIN, NULL);
-	erts_smp_spin_lock(&dep->qlock);
+	erts_smp_mtx_lock(&dep->qlock);
 	if (dep->suspended.last)
 	    dep->suspended.last->next = plp;
 	else
 	    dep->suspended.first = plp;
 	dep->suspended.last = plp;
-	erts_smp_spin_unlock(&dep->qlock);
+	erts_smp_mtx_unlock(&dep->qlock);
 	goto yield;
     }
 
@@ -2445,9 +2425,9 @@ BIF_RETTYPE setnode_3(BIF_ALIST_3)
     ASSERT(dep->send);
 
 #ifdef DEBUG
-    erts_smp_spin_lock(&dep->qlock);
+    erts_smp_mtx_lock(&dep->qlock);
     ASSERT(dep->qsize == 0);
-    erts_smp_spin_unlock(&dep->qlock);
+    erts_smp_mtx_unlock(&dep->qlock);
 #endif
 
     erts_set_dist_entry_connected(dep, BIF_ARG_2, flags);
