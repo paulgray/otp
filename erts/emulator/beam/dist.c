@@ -606,7 +606,6 @@ static void clear_dist_entry(DistEntry *dep)
 	ErtsDistOutputBuf *fobuf;
 	fobuf = obuf;
 	obuf = obuf->next;
-    dep->qlen--;
 	obufsize += size_obuf(fobuf);
 	free_dist_obuf(fobuf);
     }
@@ -1542,14 +1541,13 @@ dsig_send(ErtsDSigData *dsdp, Eterm ctl, Eterm msg, int force_busy)
     Sint obuf_size, prev_busy;
 	erts_smp_spin_lock(&dep->qlock);
     obuf_size = size_obuf(obuf);
-	dep->qsize += obuf_size;    
-    dep->qlen++;
+	dep->qsize += obuf_size;
     prev_busy = dep->qflgs & ERTS_DE_QFLG_BUSY;
 	if (dep->qsize >= ERTS_DE_BUSY_LIMIT)
 	    dep->qflgs |= ERTS_DE_QFLG_BUSY;
 	if (!force_busy && (dep->qflgs & ERTS_DE_QFLG_BUSY)) {
-        erts_fprintf(stderr, "qlen: %d\tqsize: %d\tprocess flags: %d\tqflags: %d\tsize_obuf: %d\tprev_busy: %d\t!force_busy: %d\tqflg_busy: %d\n",
-                     dep->qlen, dep->qsize, dep->flags, dep->qflgs, obuf_size, prev_busy, !force_busy, (dep->qflgs & ERTS_DE_QFLG_BUSY));
+        erts_fprintf(stderr, "qsize: %d\tprocess flags: %d\tqflags: %d\tsize_obuf: %d\tprev_busy: %d\t!force_busy: %d\tqflg_busy: %d\n",
+                     dep->qsize, dep->flags, dep->qflgs, obuf_size, prev_busy, !force_busy, (dep->qflgs & ERTS_DE_QFLG_BUSY));
 	    erts_smp_spin_unlock(&dep->qlock);
 
 	    plp = erts_proclist_create(c_p);
@@ -1720,7 +1718,6 @@ erts_dist_command(Port *prt, int reds_limit)
     Uint32 flags;
     Uint32 qflgs;
     Sint obufsize = 0;
-    Sint qlen = 0;
     ErtsDistOutputQueue oq, foq;
     DistEntry *dep = prt->dist_entry;
     Uint (*send)(Port *prt, ErtsDistOutputBuf *obuf);
@@ -1736,7 +1733,6 @@ erts_dist_command(Port *prt, int reds_limit)
     flags = dep->flags;
     status = dep->status;
     send = dep->send;
-    qlen = dep->qlen;
     erts_smp_de_runlock(dep);
 
     if (status & ERTS_DE_SFLG_EXITING) {
@@ -1778,6 +1774,9 @@ erts_dist_command(Port *prt, int reds_limit)
 	if (!de_busy) {
 	    erts_smp_spin_lock(&dep->qlock);
 	    dep->qflgs |= ERTS_DE_QFLG_BUSY;
+
+        erts_fprintf(stderr, "Setting port busy in file %s, line %d\n", __FILE__, __LINE__);
+        /* FIXME here */
 	    erts_smp_spin_unlock(&dep->qlock);
 	    de_busy = 1;
 	}
@@ -1803,6 +1802,7 @@ erts_dist_command(Port *prt, int reds_limit)
 		erts_smp_spin_lock(&dep->qlock);
 		dep->qflgs |= ERTS_DE_QFLG_BUSY;
 		erts_smp_spin_unlock(&dep->qlock);
+        erts_fprintf(stderr, "Setting port and de busy in file %s, line %d\n", __FILE__, __LINE__);
 		de_busy = prt_busy = 1;
 		break;
 	    }
@@ -1889,6 +1889,7 @@ erts_dist_command(Port *prt, int reds_limit)
 		erts_smp_spin_lock(&dep->qlock);
 		dep->qflgs |= ERTS_DE_QFLG_BUSY;
 		erts_smp_spin_unlock(&dep->qlock);
+        erts_fprintf(stderr, "Setting port and de busy in file %s, line %d\n", __FILE__, __LINE__);
 		de_busy = prt_busy = 1;
 		if (oq.first && !preempt)
 		    goto finalize_only;
@@ -1918,7 +1919,6 @@ erts_dist_command(Port *prt, int reds_limit)
 	 */
 	erts_smp_spin_lock(&dep->qlock);
 	ASSERT(dep->qsize >= obufsize);
-    dep->qlen--;
 	dep->qsize -= obufsize;
 	obufsize = 0;
 	if (de_busy && !prt_busy && dep->qsize < ERTS_DE_BUSY_LIMIT) {
