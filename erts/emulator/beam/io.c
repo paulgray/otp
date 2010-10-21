@@ -3804,7 +3804,7 @@ int driver_enqv(ErlDrvPort ix, ErlIOVec* vec, int skip)
     /* Queue and reference all binaries (remove zero length items) */
     while(n--) {
 	if ((len = iov->iov_len) > 0) {
-	    if ((b = *binv) == NULL) { /* speical case create binary ! */
+	    if ((b = *binv) == NULL) { /* special case create binary! */
 		b = driver_alloc_binary(len);
 		sys_memcpy(b->orig_bytes, iov->iov_base, len);
 		*q->b_tail++ = b;

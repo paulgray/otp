@@ -1453,7 +1453,7 @@ int erts_net_message(Port *prt,
     return -1;
 }
 
-#define ERTS_DE_BUSY_LIMIT (8*128*1024)
+#define ERTS_DE_BUSY_LIMIT (16*1024*1024) /* 8 MB */
 
 static int
 dsig_send(ErtsDSigData *dsdp, Eterm ctl, Eterm msg, int force_busy)
