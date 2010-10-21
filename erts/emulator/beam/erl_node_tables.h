@@ -134,6 +134,7 @@ typedef struct dist_entry_ {
     erts_smp_spinlock_t qlock;  /* Protects qflgs and out_queue */
     Uint32 qflgs;
     Sint qsize;
+    Sint qlen;
     ErtsDistOutputQueue out_queue;
     ErtsDistSuspended suspended;
 

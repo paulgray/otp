@@ -110,6 +110,7 @@ dist_table_alloc(void *dep_tmpl)
     erts_smp_spinlock_init_x(&dep->qlock, "dist_entry_out_queue", chnl_nr);
     dep->qflgs				= 0;
     dep->qsize				= 0;
+    dep->qlen               = 0;
     dep->out_queue.first		= NULL;
     dep->out_queue.last			= NULL;
     dep->suspended.first		= NULL;
