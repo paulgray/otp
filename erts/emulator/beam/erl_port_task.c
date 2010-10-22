@@ -324,6 +324,25 @@ enqueue_task(ErtsPortTaskQueue *ptqp, ErtsPortTask *ptp)
 }
 
 static ERTS_INLINE void
+enqueue_port_task(ErtsPortTaskQueue *ptqp, ErtsPortTask *ptp)
+{
+    ERTS_PT_CHK_NOT_IN_TASKQ(ptqp, ptp);
+    ptp->prev = NULL;
+    ptp->next = ptqp->first;
+    ptp->queue = ptqp;
+    if (ptqp->first) {
+        ASSERT(ptqp->last);
+        ptqp->first->prev = ptp;
+    }
+    else {
+        ASSERT(!ptqp->last);
+        ptqp->last = ptp;
+    }
+    ptqp->first = ptp;
+    ERTS_PT_CHK_IN_TASKQ(ptqp, ptp);
+}
+
+static ERTS_INLINE void
 push_task(ErtsPortTaskQueue *ptqp, ErtsPortTask *ptp)
 {
     ERTS_PT_CHK_NOT_IN_TASKQ(ptqp, ptp);
@@ -591,13 +610,30 @@ erts_port_task_schedule(Eterm id,
 	erl_exit(ERTS_ABORT_EXIT,
 		 "erts_port_task_schedule(): Cannot schedule free task\n");
 	break;
+    /* FIXME: change it back to enqueue_task if this fix does 
+       not help. */
+
+    /* As we put the task always in the front of the 
+       running queue, there is a risk of starvation.
+       Moreover, it could happen that the scheduler itself
+       is not a bottleneck in this case. Instead, we might
+       be limited by the inet_drv.c or OS.
+       Keep in mind that for efficiency reasons we should
+       have both async_threads and kernel poll enabled. 
+       
+       Michal Ptaszek
+    */
+
+    case ERTS_PORT_TASK_DIST_CMD:
+        enqueue_port_task(pp->sched.taskq, ptp);
+        break;
     case ERTS_PORT_TASK_INPUT:
     case ERTS_PORT_TASK_OUTPUT:
     case ERTS_PORT_TASK_EVENT:
 	erts_smp_atomic_inc(&erts_port_task_outstanding_io_tasks);
 	/* Fall through... */
     default:
-	enqueue_task(pp->sched.taskq, ptp);
+        enqueue_task(pp->sched.taskq, ptp);
 	break;
     }
 
@@ -871,7 +907,7 @@ erts_port_task_execute(ErtsRunQueue *runq, Port **curr_port_pp)
 	    io_tasks_executed++;
 	    break;
 	case ERTS_PORT_TASK_DIST_CMD:
-	    reds += erts_dist_command(pp, CONTEXT_REDS-reds);
+	    reds += erts_dist_command(pp, 8*CONTEXT_REDS-reds);
 	    break;
 	default:
 	    erl_exit(ERTS_ABORT_EXIT,

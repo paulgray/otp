@@ -383,7 +383,7 @@ int check_async_ready(void)
 **  N  handle value (used with async_cancel)
 **  arguments:
 **      ix             driver index 
-**      key            pointer to secedule queue (NULL means round robin)
+**      key            pointer to schedule queue (NULL means round robin)
 **      async_invoke   function to run in thread
 **      async_data     data to pass to invoke function
 **      async_free     function for relase async_data in case of failure

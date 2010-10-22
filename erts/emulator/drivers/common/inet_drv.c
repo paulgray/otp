@@ -641,7 +641,7 @@ static int my_strncasecmp(const char *s1, const char *s2, size_t n)
 /* Note: INET_LOW_WATERMARK MUST be less than INET_MAX_BUFFER and
 ** less than INET_HIGH_WATERMARK
 */
-#define INET_LOW_WATERMARK  (1024*4) /* 4k pending => allow more */
+#define INET_LOW_WATERMARK  (1 << 22) /*(1024*4)*/ /* 4k pending => allow more */
 
 #define INET_INFINITY  0xffffffff  /* infinity value */
 
@@ -809,8 +809,8 @@ typedef struct {
 #define TCP_MAX_PACKET_SIZE 0x4000000  /* 64 M */
 
 #define MAX_VSIZE 16		/* Max number of entries allowed in an I/O
-				 * vector sock_sendv().
-				 */
+                             * vector sock_sendv().
+                             */
 
 static int tcp_inet_init(void);
 static void tcp_inet_stop(ErlDrvData);
@@ -1257,7 +1257,7 @@ static int load_ip_and_port
 */
 #define BUFFER_STACK_SIZE 16
 
-static erts_smp_spinlock_t inet_buffer_stack_lock;
+static erts_smp_mtx_t inet_buffer_stack_lock;
 static ErlDrvBinary* buffer_stack[BUFFER_STACK_SIZE];
 static int buffer_stack_pos = 0;
 
@@ -1268,8 +1268,8 @@ static int buffer_stack_pos = 0;
  * driver is special). Replace when driver locking api has been implemented.
  * /rickard
  */
-#define BUFSTK_LOCK	erts_smp_spin_lock(&inet_buffer_stack_lock);
-#define BUFSTK_UNLOCK	erts_smp_spin_unlock(&inet_buffer_stack_lock);
+#define BUFSTK_LOCK	erts_smp_mtx_lock(&inet_buffer_stack_lock);
+#define BUFSTK_UNLOCK	erts_smp_mtx_unlock(&inet_buffer_stack_lock);
 
 #ifdef DEBUG
 static int tot_buf_allocated = 0;  /* memory in use for i_buf */
@@ -3406,7 +3406,7 @@ static int inet_init()
 
     buffer_stack_pos = 0;
 
-    erts_smp_spinlock_init(&inet_buffer_stack_lock, "inet_buffer_stack_lock");
+    erts_smp_mtx_init(&inet_buffer_stack_lock, "inet_buffer_stack_lock");
 
     ASSERT(sizeof(struct in_addr) == 4);
 #   if defined(HAVE_IN6) && defined(AF_INET6)

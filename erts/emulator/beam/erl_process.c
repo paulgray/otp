@@ -7221,7 +7221,15 @@ Process *schedule(Process *p, int calls)
 	if (rq->ports.info.len) {
 	    int have_outstanding_io;
 	    have_outstanding_io = erts_port_task_execute(rq, &esdp->current_port);
-	    if (have_outstanding_io && fcalls > 2*input_reductions) {
+        /*        
+                  if(have_outstanding_io) 
+                  erts_fprintf(stderr, "fcalls: %d in %s:%d\n", fcalls, __FILE__, __LINE__);
+
+                  FIXME:
+                  I've changed the input reductions number from 4k down to 3k
+                  in order to give port process more CPU time 
+        */
+	    if (have_outstanding_io && fcalls > input_reductions) {
 		/*
 		 * If we have performed more than 2*INPUT_REDUCTIONS since
 		 * last call to erl_sys_schedule() and we still haven't
