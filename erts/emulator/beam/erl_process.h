@@ -1113,6 +1113,7 @@ void erts_free_proc(Process *);
 void erts_suspend(Process*, ErtsProcLocks, struct port*);
 void erts_resume(Process*, ErtsProcLocks);
 int erts_resume_processes(ErtsProcList *);
+int erts_resume_max_processes(ErtsProcList *, int max);
 
 int erts_send_exit_signal(Process *,
 			  Eterm,

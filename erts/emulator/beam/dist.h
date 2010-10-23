@@ -99,6 +99,7 @@ typedef struct {
 #define ERTS_DE_IS_CONNECTED(DEP) \
   (!ERTS_DE_IS_NOT_CONNECTED((DEP)))
 
+#define DIST_MAX_PROC_RESUMES 64
 
 extern int erts_is_alive;
 

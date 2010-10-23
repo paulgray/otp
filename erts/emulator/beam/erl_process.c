@@ -6807,6 +6807,28 @@ erts_resume_processes(ErtsProcList *plp)
     return nresumed;
 }
 
+int erts_resume_max_processes(ErtsProcList *plp, int max)
+{
+    int nresumed = 0;
+    while(plp && nresumed < max) {
+        Process *proc;
+        ErtsProcList *fplp;
+        ASSERT(is_internal_pid(plp->pid));
+        proc = erts_pid2proc(NULL, 0, plp->pid, ERTS_PROC_LOCK_STATUS);
+        if (proc) {
+            if (proclist_same(plp, proc)) {
+                resume_process(proc);
+                nresumed++;
+            }
+            erts_smp_proc_unlock(proc, ERTS_PROC_LOCK_STATUS);
+        }
+        fplp = plp;
+        plp = plp->next;
+        proclist_destroy(fplp);
+    }
+    return nresumed;
+}
+
 Eterm
 erts_get_process_priority(Process *p)
 {

@@ -1787,7 +1787,9 @@ erts_dist_command(Port *prt, int reds_limit)
 	    free_dist_obuf(fob);
 	    preempt = reds > reds_limit || (prt->status & ERTS_PORT_SFLGS_DEAD);
 	    if (prt->status & ERTS_PORT_SFLG_PORT_BUSY) {
+#ifdef DIST_DEBUG
             erts_fprintf(stderr, "setting port and de busy in file %s, line %d. Reductions: %d, limit: %d\n", __FILE__, __LINE__, reds, reds_limit);
+#endif
             prt_busy = 1;
             break;
 	    }
@@ -1795,7 +1797,9 @@ erts_dist_command(Port *prt, int reds_limit)
 	if (!foq.first)
 	    foq.last = NULL;
 	if (preempt)
+#ifdef DIST_DEBUG
         erts_fprintf(stderr, "preempting port due to the reds limit (%s:%d): %d > %d\n", __FILE__, __LINE__, reds, reds_limit);
+#endif
 	    goto preempted;
     }
 
@@ -1872,7 +1876,9 @@ erts_dist_command(Port *prt, int reds_limit)
 	    free_dist_obuf(fob);
 	    preempt = reds > reds_limit || (prt->status & ERTS_PORT_SFLGS_DEAD);
 	    if (prt->status & ERTS_PORT_SFLG_PORT_BUSY) {
+#ifdef DIST_DEBUG
             erts_fprintf(stderr, "Setting port and de busy in file %s, line %d, reds: %d, reds_limit: %d\n", __FILE__, __LINE__, reds, reds_limit);
+#endif
             prt_busy = 1;
             if (oq.first && !preempt)
                 goto finalize_only;
@@ -1912,7 +1918,7 @@ erts_dist_command(Port *prt, int reds_limit)
 	    suspendees = get_suspended_on_de(dep, ERTS_DE_QFLG_BUSY);
 	    erts_smp_mtx_unlock(&dep->qlock);
 
-	    resumed = erts_resume_processes(suspendees);
+	    resumed = erts_resume_max_processes(suspendees, DIST_MAX_PROC_RESUMES);
 	    reds += resumed*ERTS_PORT_REDS_DIST_CMD_RESUMED;
 	}
 	else
