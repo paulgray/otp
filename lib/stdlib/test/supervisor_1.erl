@@ -62,6 +62,9 @@ handle_info(die, State) ->
 handle_info(stop, State) ->
     {stop, normal, State};
 
+handle_info(shutdown, State) ->
+    {stop, shutdown, State};
+
 handle_info({sleep, Time}, State) ->
     io:format("FOO: ~p~n", [Time]),
     timer:sleep(Time),

@@ -39,7 +39,7 @@
 -export([normal_termination/1, permanent_normal/1, transient_normal/1,
 	 temporary_normal/1, abnormal_termination/1,
 	 permanent_abnormal/1, transient_abnormal/1,
-	 temporary_abnormal/1]).
+	 transient_shutdown/1, temporary_abnormal/1]).
 
 %% Restart strategy tests 
 -export([restart_one_for_one/1, one_for_one/1,
@@ -668,6 +668,30 @@ transient_abnormal(Config) when is_list(Config) ->
     end,
     ?line [1,1,0,1] = get_child_counts(sup_test),
 
+    ok.
+%-------------------------------------------------------------------------    
+transient_shutdown(doc) ->
+    ["A transient child should be restarted, even if it exits with "
+     "reason shutdown"];
+transient_shutdown(suite) -> [];
+transient_shutdown(Config) when is_list(Config) -> 
+    ?line {ok, SupPid} = start({ok, {{one_for_one, 2, 3600}, []}}),
+    Child = {child, {supervisor_1, start_child, []}, transient, 1000,
+             worker, []},
+    ?line {ok, Child1} = supervisor:start_child(sup_test, Child),
+    
+    Child1 ! shutdown,
+    test_server:sleep(100),
+    
+    ?line [{child, NewChild, worker, []}] = supervisor:which_children(sup_test),
+    if
+        is_pid(NewChild) ->
+            ok;
+        NewChild == undefined ->
+            ?line test_server:fail({transient_child_not_restarted, Child1})
+    end,
+    ?line [1,1,0,1] = get_child_counts(sup_test),
+    
     ok.
 %-------------------------------------------------------------------------    
 temporary_abnormal(doc) ->
