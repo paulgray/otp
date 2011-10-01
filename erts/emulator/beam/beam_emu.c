@@ -1134,6 +1134,7 @@ dtrace_fun_decode(Process *process,
                   module, funptr, arity);
 }
 
+#ifdef HAVE_DTRACE
 #define DTRACE_CALL(p, m, f, a)                                 \
     if (ERLANG_FUNCTION_ENTRY_ENABLED()) {                      \
         char process_name[DTRACE_TERM_BUF_SIZE];                \
@@ -1191,6 +1192,7 @@ dtrace_fun_decode(Process *process,
                           process_name, mfa);       \
         ERLANG_NIF_RETURN(process_name, mfa);       \
     }
+#endif /* HAVE_DTRACE */
 
 /*
  * process_main() is called twice:
@@ -1389,6 +1391,7 @@ void process_main(void)
 	SWAPIN;
 	ASSERT(VALID_INSTR(next));
 
+#ifdef HAVE_DTRACE
         if (ERLANG_PROCESS_SCHEDULED_ENABLED()) {
             char process_buf[DTRACE_TERM_BUF_SIZE];
             char fun_buf[DTRACE_TERM_BUF_SIZE];
@@ -1409,6 +1412,7 @@ void process_main(void)
 
             ERLANG_PROCESS_SCHEDULED(process_buf, fun_buf);
         }
+#endif /* HAVE_DTRACE */
 
 	Goto(next);
     }
@@ -1675,12 +1679,16 @@ void process_main(void)
 
 
  OpCase(return): {
+#ifdef HAVE_DTRACE
     BeamInstr* fptr;
+#endif /* HAVE_DTRACE */
     SET_I(c_p->cp);
 
+#ifdef HAVE_DTRACE
     if (ERLANG_FUNCTION_RETURN_ENABLED() && (fptr = find_function_from_pc(c_p->cp))) {
         DTRACE_RETURN(c_p, (Eterm)fptr[0], (Eterm)fptr[1], (Uint)fptr[2]);
     }
+#endif /* HAVE_DTRACE */
 
     /*
      * We must clear the CP to make sure that a stale value do not
@@ -3443,7 +3451,9 @@ void process_main(void)
 	     */
 	    BifFunction vbf;
 
+#ifdef HAVE_DTRACE
 	    DTRACE_NIF_ENTRY(c_p, (Eterm)I[-3], (Eterm)I[-2], (Uint)I[-1]);
+#endif /* HAVE_DTRACE */
 
 	    c_p->current = I-3; /* current and vbf set to please handle_error */ 
 	    SWAPOUT;
@@ -3467,10 +3477,12 @@ void process_main(void)
 	    PROCESS_MAIN_CHK_LOCKS(c_p);
 	    ERTS_VERIFY_UNUSED_TEMP_ALLOC(c_p);
 
+#ifdef HAVE_DTRACE
 	    DTRACE_NIF_RETURN(c_p, (Eterm)I[-3], (Eterm)I[-2], (Uint)I[-1]);
+#endif /* HAVE_DTRACE */
 
 	    goto apply_bif_or_nif_epilogue;
-	 
+
 	OpCase(apply_bif):
 	    /*
 	     * At this point, I points to the code[3] in the export entry for
@@ -3488,7 +3500,10 @@ void process_main(void)
 	    c_p->arity = 0;		/* To allow garbage collection on ourselves
 					 * (check_process_code/2).
 					 */
+
+#ifdef HAVE_DTRACE
 	    DTRACE_BIF_ENTRY(c_p, (Eterm)I[-3], (Eterm)I[-2], (Uint)I[-1]);
+#endif /* HAVE_DTRACE */
 
 	    SWAPOUT;
 	    c_p->fcalls = FCALLS - 1;
@@ -3548,7 +3563,9 @@ void process_main(void)
 			 bif_nif_arity);
 	    }
 
+#ifdef HAVE_DTRACE
 	    DTRACE_BIF_RETURN(c_p, (Eterm)I[-3], (Eterm)I[-2], (Uint)I[-1]);
+#endif /* HAVE_DTRACE */
 
 	apply_bif_or_nif_epilogue:
 	    ERTS_SMP_REQ_PROC_MAIN_LOCK(c_p);
@@ -6303,12 +6320,14 @@ apply(Process* p, Eterm module, Eterm function, Eterm args, Eterm* reg)
 	save_calls(p, ep);
     }
 
+#ifdef HAVE_DTRACE
     if (ERLANG_FUNCTION_ENTRY_ENABLED() && ep->address) {
         BeamInstr *fptr = find_function_from_pc(ep->address);
         if (fptr) {
             DTRACE_CALL(p, (Eterm)fptr[0], (Eterm)fptr[1], (Uint)fptr[2]);
         }
     }
+#endif HAVE_DTRACE /* HAVE_DTRACE */
 
     return ep->address;
 }
@@ -6359,12 +6378,14 @@ fixed_apply(Process* p, Eterm* reg, Uint arity)
 	save_calls(p, ep);
     }
 
+#ifdef HAVE_DTRACE
     if (ERLANG_FUNCTION_ENTRY_ENABLED()) {
         BeamInstr *fptr = find_function_from_pc(ep->address);
         if (fptr) {
             DTRACE_CALL(p, (Eterm)fptr[0], (Eterm)fptr[1], (Uint)fptr[2]);
         }
     }
+#endif /* HAVE_DTRACE */
 
     return ep->address;
 }
@@ -6415,6 +6436,7 @@ erts_hibernate(Process* c_p, Eterm module, Eterm function, Eterm args, Eterm* re
 	c_p->max_arg_reg = sizeof(c_p->def_arg_reg)/sizeof(c_p->def_arg_reg[0]);
     }
 
+#ifdef HAVE_DTRACE
     if (ERLANG_HIBERNATE_ENABLED()) {
         char process_name[DTRACE_TERM_BUF_SIZE];
         char mfa[DTRACE_TERM_BUF_SIZE];
@@ -6422,6 +6444,7 @@ erts_hibernate(Process* c_p, Eterm module, Eterm function, Eterm args, Eterm* re
                           process_name, mfa);
         ERLANG_HIBERNATE(process_name, mfa);
     }
+#endif /* HAVE_DTRACE */
 
     /*
      * Arrange for the process to be resumed at the given MFA with
@@ -6500,9 +6523,11 @@ call_fun(Process* p,		/* Current process. */
 
 	fptr = find_function_from_pc(code_ptr);
 
-        if (fptr) {
-            DTRACE_CALL(p, fe->module, (Eterm)fptr[1], actual_arity);
-        }
+#ifdef HAVE_DTRACE
+    if (fptr) {
+        DTRACE_CALL(p, fe->module, (Eterm)fptr[1], actual_arity);
+    }
+#endif /* HAVE_DTRACE */
 
 	if (actual_arity == arity+num_free) {
 	    if (num_free == 0) {
@@ -6597,7 +6622,9 @@ call_fun(Process* p,		/* Current process. */
 	actual_arity = (int) ep->code[2];
 
 	if (arity == actual_arity) {
+#ifdef HAVE_DTRACE
 	    DTRACE_CALL(p, ep->code[0], ep->code[1], (Uint)ep->code[2]);
+#endif /* HAVE_DTRACE */
 	    return ep->address;
 	} else {
 	    /*
@@ -6653,7 +6680,9 @@ call_fun(Process* p,		/* Current process. */
 	    reg[1] = function;
 	    reg[2] = args;
 	}
+#ifdef HAVE_DTRACE
 	DTRACE_CALL(p, module, function, arity);
+#endif /* HAVE_DTRACE */
 	return ep->address;
     } else {
     badfun:

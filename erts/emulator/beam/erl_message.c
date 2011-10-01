@@ -465,12 +465,14 @@ erts_queue_message(Process* receiver,
     LINK_MESSAGE(receiver, mp);
 #endif
 
+#ifdef HAVE_DTRACE
     if (ERLANG_RECEIVE_ENABLED()) {
         char receiver_name[DTRACE_TERM_BUF_SIZE];
 
         dtrace_proc_str(receiver, receiver_name);
         ERLANG_RECEIVE(receiver_name, size_object(message), receiver->msg.len);
     }
+#endif /* HAVE_DTRACE */
 
     notify_new_message(receiver);
 
@@ -789,7 +791,7 @@ erts_send_message(Process* sender,
     BM_MESSAGE(message,sender,receiver);
     BM_START_TIMER(send);
 
-
+#ifdef HAVE_DTRACE
     if (ERLANG_SEND_ENABLED()) {
         char sender_name[64];
         char receiver_name[64];
@@ -797,6 +799,7 @@ erts_send_message(Process* sender,
         erts_snprintf(receiver_name, sizeof(receiver_name), "%T", receiver->id);
         ERLANG_SEND(sender_name, receiver_name, size_object(message));
     }
+#endif /* HAVE_DTRACE */
 
     if (SEQ_TRACE_TOKEN(sender) != NIL && !(flags & ERTS_SND_FLG_NO_SEQ_TRACE)) {
         Eterm* hp;

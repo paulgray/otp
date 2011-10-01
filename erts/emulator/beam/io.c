@@ -1170,13 +1170,14 @@ int erts_write_to_port(Eterm caller_id, Port *p, Eterm list)
 	driver_free_binary(cbin);
     } else {
 	int r;
-	
+
 	/* Try with an 8KB buffer first (will often be enough I guess). */
 	size = 8*1024;
 	/* See below why the extra byte is added. */
 	buf = erts_alloc(ERTS_ALC_T_TMP, size+1);
 	r = io_list_to_buf(list, buf, size);
 
+#ifdef HAVE_DTRACE
     if(ERLANG_PORT_COMMAND_ENABLED()) {
         char process_str[DTRACE_TERM_BUF_SIZE];
         char port_str[DTRACE_TERM_BUF_SIZE];
@@ -1185,6 +1186,7 @@ int erts_write_to_port(Eterm caller_id, Port *p, Eterm list)
         dtrace_port_str(p, port_str);
         ERLANG_PORT_COMMAND(process_str, port_str, p->name, "command");
     }
+#endif /* HAVE_DTRACE */
 
 	if (r >= 0) {
 	    size -= r;
@@ -2116,6 +2118,7 @@ void erts_port_command(Process *proc,
 		erts_port_status_bor_set(port, ERTS_PORT_SFLG_SEND_CLOSED);
 		erts_do_exit_port(port, pid, am_normal);
 
+#ifdef HAVE_DTRACE
         if(ERLANG_PORT_COMMAND_ENABLED()) {
             char process_str[DTRACE_TERM_BUF_SIZE];
             char port_str[DTRACE_TERM_BUF_SIZE];
@@ -2124,6 +2127,7 @@ void erts_port_command(Process *proc,
             dtrace_port_str(port, port_str);
             ERLANG_PORT_COMMAND(process_str, port_str, port->name, "close");
         }
+#endif /* HAVE_DTRACE */
 		goto done;
 	    } else if (is_tuple_arity(tp[2], 2)) {
 		tp = tuple_val(tp[2]);
@@ -2131,6 +2135,7 @@ void erts_port_command(Process *proc,
 		    if (erts_write_to_port(caller_id, port, tp[2]) == 0)
 			goto done;
 		} else if ((tp[1] == am_connect) && is_internal_pid(tp[2])) {
+#ifdef HAVE_DTRACE
             if(ERLANG_PORT_COMMAND_ENABLED()) {
                 char process_str[DTRACE_TERM_BUF_SIZE];
                 char port_str[DTRACE_TERM_BUF_SIZE];
@@ -2139,6 +2144,7 @@ void erts_port_command(Process *proc,
                 dtrace_port_str(port, port_str);
                 ERLANG_PORT_COMMAND(process_str, port_str, port->name, "connect");
             }
+#endif /* HAVE_DTRACE */
 		    port->connected = tp[2];
 		    deliver_result(port->id, pid, am_connected);
 		    goto done;
@@ -2240,6 +2246,7 @@ erts_port_control(Process* p, Port* prt, Uint command, Eterm iolist)
     erts_smp_proc_unlock(p, ERTS_PROC_LOCK_MAIN);
     ERTS_SMP_CHK_NO_PROC_LOCKS;
 
+#ifdef HAVE_DTRACE
     if(ERLANG_PORT_CONTROL_ENABLED()) {
         char process_str[DTRACE_TERM_BUF_SIZE];
         char port_str[DTRACE_TERM_BUF_SIZE];
@@ -2248,6 +2255,7 @@ erts_port_control(Process* p, Port* prt, Uint command, Eterm iolist)
         dtrace_port_str(prt, port_str);
         ERLANG_PORT_CONTROL(process_str, port_str, prt->name, command);
     }
+#endif /* HAVE_DTRACE */
 
     /*
      * Call the port's control routine.

@@ -61,11 +61,13 @@ copy_object(Eterm obj, Process* to)
     Eterm* hp = HAlloc(to, size);
     Eterm res;
 
+#ifdef HAVE_DTRACE
     if (ERLANG_COPY_OBJECT_ENABLED()) {
         char proc_name[64];
         erts_snprintf(proc_name, sizeof(proc_name), "%T", to->id);
         ERLANG_COPY_OBJECT(proc_name, size);
     }
+#endif /* HAVE_DTRACE */
     res = copy_struct(obj, size, &hp, &to->off_heap);
 #ifdef DEBUG
     if (eq(obj, res) == 0) {
@@ -220,7 +222,10 @@ Eterm copy_struct(Eterm obj, Uint sz, Eterm** hpp, ErlOffHeap* off_heap)
     if (IS_CONST(obj))
 	return obj;
 
-    ERLANG_COPY_STRUCT((int32_t)sz);
+#ifdef HAVE_DTRACE
+    if(ERLANG_COPY_STRUCT_ENABLED())
+        ERLANG_COPY_STRUCT((int32_t)sz);
+#endif /* HAVE_DTRACE */
 
     hp = htop = *hpp;
     hbot   = htop + sz;

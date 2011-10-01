@@ -370,25 +370,35 @@ erts_garbage_collect(Process* p, int need, Eterm* objv, int nobj)
         FLAGS(p) |= F_NEED_FULLSWEEP;
     }
 
+#ifdef HAVE_DTRACE
     if (ERLANG_GC_MAJOR_START_ENABLED()
         || ERLANG_GC_MAJOR_END_ENABLED()
         || ERLANG_GC_MINOR_START_ENABLED()
         || ERLANG_GC_MINOR_END_ENABLED()) {
         dtrace_proc_str(p, pidbuf);
     }
+#endif /* HAVE_DTRACE */
 
     /*
      * Test which type of GC to do.
      */
     while (!done) {
 	if ((FLAGS(p) & F_NEED_FULLSWEEP) != 0) {
+#ifdef HAVE_DTRACE
             ERLANG_GC_MAJOR_START(pidbuf, need);
-	    done = major_collection(p, need, objv, nobj, &reclaimed_now);
+#endif /* HAVE_DTRACE */
+            done = major_collection(p, need, objv, nobj, &reclaimed_now);
+#ifdef HAVE_DTRACE
             ERLANG_GC_MAJOR_END(pidbuf, reclaimed_now);
+#endif /* HAVE_DTRACE */
 	} else {
+#ifdef HAVE_DTRACE
             ERLANG_GC_MINOR_START(pidbuf, need);
-	    done = minor_collection(p, need, objv, nobj, &reclaimed_now);
+#endif /* HAVE_DTRACE */
+            done = minor_collection(p, need, objv, nobj, &reclaimed_now);
+#ifdef HAVE_DTRACE
             ERLANG_GC_MINOR_END(pidbuf, reclaimed_now);
+#endif /* HAVE_DTRACE */
 	}
     }
 
@@ -1071,12 +1081,14 @@ do_minor(Process *p, int new_sz, Eterm* objv, int nobj)
     sys_memcpy(n_heap + new_sz - n, p->stop, n * sizeof(Eterm));
     p->stop = n_heap + new_sz - n;
 
+#ifdef HAVE_DTRACE
     if(HEAP_SIZE(p) != new_sz) {
         char pidbuf[DTRACE_TERM_BUF_SIZE];
         if(ERLANG_PROCESS_HEAP_GROW_ENABLED())
             dtrace_proc_str(p, pidbuf);
         ERLANG_PROCESS_HEAP_GROW(pidbuf, HEAP_SIZE(p), new_sz);
     }
+#endif /* HAVE_DTRACE */
 
     ERTS_HEAP_FREE(ERTS_ALC_T_HEAP,
 		   (void*)HEAP_START(p),
@@ -1299,12 +1311,14 @@ major_collection(Process* p, int need, Eterm* objv, int nobj, Uint *recl)
     sys_memcpy(n_heap + new_sz - n, p->stop, n * sizeof(Eterm));
     p->stop = n_heap + new_sz - n;
 
+#ifdef HAVE_DTRACE
     if(HEAP_SIZE(p) != new_sz) {
         char pidbuf[DTRACE_TERM_BUF_SIZE];
         if(ERLANG_PROCESS_HEAP_GROW_ENABLED())
             dtrace_proc_str(p, pidbuf);
         ERLANG_PROCESS_HEAP_GROW(pidbuf, HEAP_SIZE(p), new_sz);
     }
+#endif /* HAVE_DTRACE */
 
     ERTS_HEAP_FREE(ERTS_ALC_T_HEAP,
 		   (void *) HEAP_START(p),
@@ -1947,7 +1961,9 @@ grow_new_heap(Process *p, Uint new_sz, Eterm* objv, int nobj)
     int heap_size = HEAP_TOP(p) - HEAP_START(p);
     int stack_size = p->hend - p->stop;
     Sint offs;
+#ifdef HAVE_DTRACE
     char pidbuf[DTRACE_TERM_BUF_SIZE];
+#endif /* HAVE_DTRACE */
 
     ASSERT(HEAP_SIZE(p) < new_sz);
     new_heap = (Eterm *) ERTS_HEAP_REALLOC(ERTS_ALC_T_HEAP,
@@ -1978,9 +1994,11 @@ grow_new_heap(Process *p, Uint new_sz, Eterm* objv, int nobj)
         HEAP_START(p) = new_heap;
     }
 
+#ifdef HAVE_DTRACE
     if(ERLANG_PROCESS_HEAP_GROW_ENABLED())
         dtrace_proc_str(p, pidbuf);
     ERLANG_PROCESS_HEAP_GROW(pidbuf, HEAP_SIZE(p), new_sz);
+#endif /* HAVE_DTRACE */
 
     HEAP_SIZE(p) = new_sz;
 }
@@ -1991,8 +2009,10 @@ shrink_new_heap(Process *p, Uint new_sz, Eterm *objv, int nobj)
     Eterm* new_heap;
     int heap_size = HEAP_TOP(p) - HEAP_START(p);
     Sint offs;
-    char pidbuf[DTRACE_TERM_BUF_SIZE];
     int stack_size = p->hend - p->stop;
+#ifdef HAVE_DTRACE
+    char pidbuf[DTRACE_TERM_BUF_SIZE];
+#endif /* HAVE_DTRACE */
 
     ASSERT(new_sz < p->heap_sz);
     sys_memmove(p->heap + new_sz - stack_size, p->stop, stack_size *
@@ -2021,9 +2041,11 @@ shrink_new_heap(Process *p, Uint new_sz, Eterm *objv, int nobj)
         HEAP_START(p) = new_heap;
     }
 
+#ifdef HAVE_DTRACE
     if(ERLANG_PROCESS_HEAP_SHRINK_ENABLED())
         dtrace_proc_str(p, pidbuf);
     ERLANG_PROCESS_HEAP_SHRINK(pidbuf, HEAP_SIZE(p), new_sz);
+#endif /* HAVE_DTRACE */
 
     HEAP_SIZE(p) = new_sz;
 }
