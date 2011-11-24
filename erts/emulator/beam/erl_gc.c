@@ -77,22 +77,6 @@ do {									\
     OverRunCheck((P));							\
 } while (0)
 #endif
-/*
- * This structure describes the rootset for the GC.
- */
-typedef struct roots {
-    Eterm* v;		/* Pointers to vectors with terms to GC
-			 * (e.g. the stack).
-			 */
-    Uint sz;		/* Size of each vector. */
-} Roots;
-
-typedef struct {
-    Roots def[32];		/* Default storage. */
-    Roots* roots;		/* Pointer to root set array. */
-    Uint size;			/* Storage size. */
-    int num_roots;		/* Number of root arrays. */
-} Rootset;
 
 static Uint setup_rootset(Process*, Eterm*, int, Rootset*);
 static void cleanup_rootset(Rootset *rootset);

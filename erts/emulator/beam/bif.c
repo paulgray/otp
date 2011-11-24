@@ -37,6 +37,7 @@
 #include "erl_db_util.h"
 #include "register.h"
 #include "erl_thr_progress.h"
+#include "erl_gc.h"
 
 static Export* flush_monitor_message_trap = NULL;
 static Export* set_cpu_topology_trap = NULL;
@@ -4469,4 +4470,174 @@ BIF_RETTYPE get_module_info_2(BIF_ALIST_2)
 	BIF_ERROR(BIF_P, BADARG);
     }
     BIF_RET(ret);
+}
+
+static Uint setup_rootset(Process*, Eterm*, int, Rootset*);
+
+BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
+{
+    Process *p;
+    Rootset rootset;            /* Rootset for GC (stack, dictionary, etc). */
+    Roots* roots;
+    Eterm* n_htop;
+    Uint n;
+    Eterm* ptr;
+    Eterm val, gval;
+    char* heap;
+    Uint heap_size, mature_size;
+    Eterm* old_htop;
+    Eterm* n_heap;
+    Eterm pid = BIF_ARG_1;
+    Eterm result = NIL;
+    Eterm* hp;
+
+    // at first we need to obtain a pointer to the process structure
+    if (is_external_pid(pid)
+        && external_pid_dist_entry(pid) == erts_this_dist_entry)
+        BIF_RET(am_undefined);
+	
+    if (is_not_internal_pid(pid)
+        || internal_pid_index(BIF_ARG_1) >= erts_max_processes) {
+        BIF_ERROR(BIF_P, BADARG);
+    }
+
+    // FIXME: check if any kind of locks are needed to be here
+    p = erts_pid2proc(BIF_P, ERTS_PROC_LOCK_MAIN, pid, ERTS_PROC_LOCKS_ALL);
+    heap = (char *) HEAP_START(p);
+    heap_size = (char *) HEAP_TOP(p) - heap;
+    mature_size = (char *) HIGH_WATER(p) - heap;
+    old_htop = OLD_HTOP(p);
+
+    // At first we need to build up a rootset for the process
+    n = setup_rootset(p, NULL, 0, &rootset);
+    roots = rootset.roots;
+
+    // then, let's create a list of items sitting on the rootset
+    // and tag them with their sizes
+    while(n--) {
+        Eterm* g_ptr = roots->v;
+        Uint g_sz = roots->sz;
+
+        roots++;
+        while(g_sz--) {
+            erts_fprintf(stderr, "Adding an item to the list\n");
+            gval = *g_ptr;
+            if(is_value(gval)) {
+                hp = HAlloc(BIF_P, 2);
+                result = CONS(hp, gval, result);
+                hp += 2;
+            }
+            g_ptr++;
+        }
+    }
+    
+    BIF_RET(result);
+
+    // having a list returned to the caller will allow us to 
+    // verify what is working correctly
+
+    // as a second step perform iteration on the younger heap,
+    // something similar to erl_gc:do_minor
+
+    // finally, add the old heap as well, basing on the code
+    // for major GC
+
+    // lastly, make sure that the overhead of calling the BIF
+    // is as minimal as possible, and there is no memory leak
+    // anywhere
+}
+
+// FIXME: import this function properly from erl_gc.c
+#define ALENGTH(a) (sizeof(a)/sizeof(a[0]))
+
+static Uint setup_rootset(Process *p, Eterm *objv, int nobj, Rootset *rootset)
+{
+    Uint avail;
+    Roots* roots;
+    ErlMessage* mp;
+    Uint n;
+
+    n = 0;
+    roots = rootset->roots = rootset->def;
+    rootset->size = ALENGTH(rootset->def);
+
+    roots[n].v  = p->stop;
+    roots[n].sz = STACK_START(p) - p->stop;
+    ++n;
+
+    if (p->dictionary != NULL) {
+        roots[n].v = p->dictionary->data;
+        roots[n].sz = p->dictionary->used;
+        ++n;
+    }
+    if (nobj > 0) {
+        roots[n].v  = objv;
+        roots[n].sz = nobj;
+        ++n;
+    }
+
+    ASSERT((is_nil(p->seq_trace_token) ||
+	    is_tuple(follow_moved(p->seq_trace_token)) ||
+	    is_atom(p->seq_trace_token)));
+    if (is_not_immed(p->seq_trace_token)) {
+	roots[n].v = &p->seq_trace_token;
+	roots[n].sz = 1;
+	n++;
+    }
+
+    ASSERT(is_nil(p->tracer_proc) ||
+	   is_internal_pid(p->tracer_proc) ||
+	   is_internal_port(p->tracer_proc));
+
+    ASSERT(is_pid(follow_moved(p->group_leader)));
+    if (is_not_immed(p->group_leader)) {
+	roots[n].v  = &p->group_leader;
+	roots[n].sz = 1;
+	n++;
+    }
+
+    /*
+     * The process may be garbage-collected while it is terminating.
+     * (fvalue contains the EXIT reason and ftrace the saved stack trace.)
+     */
+    if (is_not_immed(p->fvalue)) {
+	roots[n].v  = &p->fvalue;
+	roots[n].sz = 1;
+	n++;
+    }
+    if (is_not_immed(p->ftrace)) {
+	roots[n].v  = &p->ftrace;
+	roots[n].sz = 1;
+	n++;
+    }
+    ASSERT(n <= rootset->size);
+
+    mp = p->msg.first;
+    avail = rootset->size - n;
+    while (mp != NULL) {
+	if (avail == 0) {
+	    Uint new_size = 2*rootset->size;
+	    if (roots == rootset->def) {
+		roots = erts_alloc(ERTS_ALC_T_ROOTSET,
+				   new_size*sizeof(Roots));
+		sys_memcpy(roots, rootset->def, sizeof(rootset->def));
+	    } else {
+		roots = erts_realloc(ERTS_ALC_T_ROOTSET,
+				     (void *) roots,
+				     new_size*sizeof(Roots));
+	    }
+	    rootset->size = new_size;
+	    avail = new_size - n;
+	}
+	if (mp->data.attached == NULL) {
+	    roots[n].v = mp->m;
+	    roots[n].sz = 2;
+	    n++;
+	    avail--;
+	}
+        mp = mp->next;
+    }
+    rootset->roots = roots;
+    rootset->num_roots = n;
+    return n;
 }

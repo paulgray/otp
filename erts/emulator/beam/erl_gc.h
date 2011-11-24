@@ -94,4 +94,21 @@ ERTS_GLB_INLINE Eterm follow_moved(Eterm term)
 }
 #endif
 
+/*
+ * This structure describes the rootset for the GC.
+ */
+typedef struct roots {
+    Eterm* v;		/* Pointers to vectors with terms to GC
+                     * (e.g. the stack).
+                     */
+    Uint sz;		/* Size of each vector. */
+} Roots;
+
+typedef struct {
+    Roots def[32];		/* Default storage. */
+    Roots* roots;		/* Pointer to root set array. */
+    Uint size;			/* Storage size. */
+    int num_roots;		/* Number of root arrays. */
+} Rootset;
+
 #endif /* __ERL_GC_H__ */

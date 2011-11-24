@@ -508,6 +508,8 @@ ubif 'erl.lang.term':is_record/3	ebif_is_record_3
 
 bif erlang:match_spec_test/3
 
+bif erlang:inspect_heap/1
+
 #
 # Bifs in ets module.
 #
