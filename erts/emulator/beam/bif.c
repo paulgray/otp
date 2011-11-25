@@ -4477,15 +4477,11 @@ static Uint setup_rootset(Process*, Eterm*, int, Rootset*);
 BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
 {
     Process *p;
-    Rootset rootset;            /* Rootset for GC (stack, dictionary, etc). */
-    Roots* roots;
-    Eterm* n_htop;
+    Rootset rootset;
+    Roots *roots;
     Uint n, alloc_ahead = 100;
-    Eterm* ptr;
-    Eterm val, gval;
-    char* heap;
-    Uint heap_size, mature_size;
-    Eterm *old_htop;
+    Eterm gval, tuple;
+    Eterm *heap_ptr, *heap_top;
     Eterm pid = BIF_ARG_1;
     Eterm result = NIL;
     Eterm *hp, *hp_end;
@@ -4514,15 +4510,12 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
             BIF_RET(am_undefined);
     }
 
-    heap = (char *) HEAP_START(p);
-    heap_size = (char *) HEAP_TOP(p) - heap;
-    mature_size = (char *) HIGH_WATER(p) - heap;
-
     // as we can inspect our own heap, we should mark the top of the
     // heap before putting anything on top of it. Unless we do it,
     // we end up with an infinite loop, when adding new items on the
     // heap and inspecting them a second later
-    old_htop = OLD_HTOP(p);
+    heap_ptr = (Eterm *) HEAP_START(p);
+    heap_top = (Eterm *) HEAP_TOP(p);
 
     hp = HAlloc(BIF_P, alloc_ahead);
     hp_end = hp + alloc_ahead;
@@ -4539,8 +4532,6 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
         roots++;
 
         while(g_sz--) {
-            Eterm tuple;
-
             gval = *g_ptr;
             switch(primary_tag(gval)) {
             case TAG_PRIMARY_LIST:
@@ -4557,16 +4548,28 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
         }
     }
 
-    // as a second step perform iteration on the younger heap,
-    // something similar to erl_gc:do_minor
+    // as a second step perform iteration on the heap
+    while(heap_ptr != heap_top) {
+        ASSERT(heap_ptr < heap_top);
 
-    // finally, add the old heap as well, basing on the code
-    // for major GC
+        gval = *heap_ptr;
+        switch (primary_tag(gval)) {
+        case TAG_PRIMARY_LIST:
+        case TAG_PRIMARY_BOXED:
+            if(hp == hp_end) {
+                hp = HAlloc(BIF_P, alloc_ahead);
+                hp_end = hp + alloc_ahead;
+            }
 
-    // lastly, make sure that the overhead of calling the BIF
-    // is as minimal as possible, and there is no memory leak
-    // anywhere
+            if(is_thing(gval)) {
+                tuple = TUPLE2(hp, gval, make_small(size_object(gval))); hp += 3;
+                result = CONS(hp, tuple, result); hp += 2;
+            }
+        }
+        heap_ptr++;
+    }
 
+    // release unused memory allocated in advanced
     HRelease(BIF_P, hp_end, hp);
     BIF_RET(result);
 }
