@@ -4479,8 +4479,8 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     Process *p;
     Rootset rootset;
     Roots *roots;
-    Uint n, alloc_ahead = 100;
-    Eterm gval, tuple;
+    Uint n, alloc_ahead = 100, gval_size;
+    Eterm gval, gval_copy, tuple;
     Eterm *heap_ptr, *heap_top;
     Eterm pid = BIF_ARG_1;
     Eterm result = NIL;
@@ -4517,6 +4517,7 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     heap_ptr = (Eterm *) HEAP_START(p);
     heap_top = (Eterm *) HEAP_TOP(p);
 
+    // TODO - check if we should not use heap_top here as well
     hp = HAlloc(BIF_P, alloc_ahead);
     hp_end = hp + alloc_ahead;
 
@@ -4536,12 +4537,19 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
             switch(primary_tag(gval)) {
             case TAG_PRIMARY_LIST:
             case TAG_PRIMARY_BOXED:
-                if(hp == hp_end) {
-                    hp = HAlloc(BIF_P, alloc_ahead);
-                    hp_end = hp + alloc_ahead;
+                gval_size = size_object(gval);
+
+                if(hp + gval_size + 3 + 2 >= hp_end) {
+                    Uint alloc_ahead_new = alloc_ahead;
+                    while(gval_size + 3 + 2 >= alloc_ahead_new)
+                        alloc_ahead_new += alloc_ahead;
+
+                    hp = HAlloc(BIF_P, alloc_ahead_new);
+                    hp_end = hp + alloc_ahead_new;
                 }
 
-                tuple = TUPLE2(hp, gval, make_small(size_object(gval))); hp += 3;
+                gval_copy = copy_struct(gval, gval_size, &hp, &MSO(BIF_P));
+                tuple = TUPLE2(hp, gval_copy, make_small(gval_size)); hp += 3;
                 result = CONS(hp, tuple, result); hp += 2;
             }
             g_ptr++;
@@ -4556,18 +4564,31 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
         switch (primary_tag(gval)) {
         case TAG_PRIMARY_LIST:
         case TAG_PRIMARY_BOXED:
-            if(hp == hp_end) {
-                hp = HAlloc(BIF_P, alloc_ahead);
-                hp_end = hp + alloc_ahead;
-            }
-
             if(is_thing(gval)) {
-                tuple = TUPLE2(hp, gval, make_small(size_object(gval))); hp += 3;
+                gval_size = size_object(gval);
+
+                if(hp + gval_size + 3 + 2 >= hp_end) {
+                    Uint alloc_ahead_new = alloc_ahead;
+                    while(gval_size + 3 + 2 >= alloc_ahead_new)
+                        alloc_ahead_new += alloc_ahead;
+
+                    hp = HAlloc(BIF_P, alloc_ahead_new);
+                    hp_end = hp + alloc_ahead_new;
+                }
+                gval_copy = copy_struct(gval, gval_size, &hp, &MSO(BIF_P));
+                tuple = TUPLE2(hp, gval_copy, make_small(gval_size)); hp += 3;
                 result = CONS(hp, tuple, result); hp += 2;
             }
         }
         heap_ptr++;
     }
+
+#ifdef ERTS_SMP
+    if(BIF_P != p) {
+        erts_resume(p, ERTS_PROC_LOCK_MAIN);
+        erts_smp_proc_unlock(p, ERTS_PROC_LOCK_MAIN);
+    }
+#endif
 
     // release unused memory allocated in advanced
     HRelease(BIF_P, hp_end, hp);
