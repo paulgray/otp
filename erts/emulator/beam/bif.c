@@ -4485,8 +4485,7 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     Eterm val, gval;
     char* heap;
     Uint heap_size, mature_size;
-    Eterm* old_htop;
-    Eterm* n_heap;
+    Eterm *old_htop;
     Eterm pid = BIF_ARG_1;
     Eterm result = NIL;
     Eterm *hp, *hp_end;
@@ -4515,10 +4514,14 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
             BIF_RET(am_undefined);
     }
 
-    // FIXME: check if any kind of locks are needed to be here
     heap = (char *) HEAP_START(p);
     heap_size = (char *) HEAP_TOP(p) - heap;
     mature_size = (char *) HIGH_WATER(p) - heap;
+
+    // as we can inspect our own heap, we should mark the top of the
+    // heap before putting anything on top of it. Unless we do it,
+    // we end up with an infinite loop, when adding new items on the
+    // heap and inspecting them a second later
     old_htop = OLD_HTOP(p);
 
     hp = HAlloc(BIF_P, alloc_ahead);
@@ -4530,17 +4533,14 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
 
     // then, let's create a list of items sitting on the rootset
     // and tag them with their sizes
-
-    // as we can inspect our own heap, we should mark the top of the
-    // heap before putting anything on top of it. Unless we do it,
-    // we end up with an infinite loop, when adding new items on the
-    // heap and inspecting them a second later
     while(n--) {
         Eterm* g_ptr = roots->v;
         Uint g_sz = roots->sz;
         roots++;
 
         while(g_sz--) {
+            Eterm tuple;
+
             gval = *g_ptr;
             switch(primary_tag(gval)) {
             case TAG_PRIMARY_LIST:
@@ -4550,19 +4550,12 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
                     hp_end = hp + alloc_ahead;
                 }
 
-                result = CONS(hp, gval, result);
-                hp += 2;
+                tuple = TUPLE2(hp, gval, make_small(size_object(gval))); hp += 3;
+                result = CONS(hp, tuple, result); hp += 2;
             }
             g_ptr++;
         }
     }
-
-    HRelease(BIF_P, hp_end, hp);
-
-    BIF_RET(result);
-
-    // having a list returned to the caller will allow us to
-    // verify what is working correctly
 
     // as a second step perform iteration on the younger heap,
     // something similar to erl_gc:do_minor
@@ -4573,6 +4566,9 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     // lastly, make sure that the overhead of calling the BIF
     // is as minimal as possible, and there is no memory leak
     // anywhere
+
+    HRelease(BIF_P, hp_end, hp);
+    BIF_RET(result);
 }
 
 // FIXME: import this function properly from erl_gc.c
