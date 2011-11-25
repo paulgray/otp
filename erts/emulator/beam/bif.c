@@ -4472,7 +4472,7 @@ BIF_RETTYPE get_module_info_2(BIF_ALIST_2)
     BIF_RET(ret);
 }
 
-static Uint setup_rootset(Process*, Eterm*, int, Rootset*);
+static Uint setup_rootset(Process*, Rootset*);
 
 BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
 {
@@ -4522,7 +4522,7 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     hp_end = hp + alloc_ahead;
 
     // At first we need to build up a rootset for the process
-    n = setup_rootset(p, NULL, 0, &rootset);
+    n = setup_rootset(p, &rootset);
     roots = rootset.roots;
 
     // then, let's create a list of items sitting on the rootset
@@ -4539,17 +4539,28 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
             case TAG_PRIMARY_BOXED:
                 gval_size = size_object(gval);
 
-                if(hp + gval_size + 3 + 2 >= hp_end) {
-                    Uint alloc_ahead_new = alloc_ahead;
-                    while(gval_size + 3 + 2 >= alloc_ahead_new)
-                        alloc_ahead_new += alloc_ahead;
+                if(BIF_P == p) {
+                    // we are asking about ourselves, there is no need
+                    // to copy the objects to our heap
+                    if(hp + 5 >= hp_end) {
+                        hp = HAlloc(BIF_P, alloc_ahead);
+                        hp_end = hp + alloc_ahead;
+                    }
 
-                    hp = HAlloc(BIF_P, alloc_ahead_new);
-                    hp_end = hp + alloc_ahead_new;
+                    tuple = TUPLE2(hp, gval, make_small(gval_size)); hp += 3;
+                } else {
+                    if(hp + gval_size + 5 >= hp_end) {
+                        Uint alloc_ahead_new = alloc_ahead;
+                        while(gval_size + 5 >= alloc_ahead_new)
+                            alloc_ahead_new += alloc_ahead;
+
+                        hp = HAlloc(BIF_P, alloc_ahead_new);
+                        hp_end = hp + alloc_ahead_new;
+                    }
+
+                    gval_copy = copy_struct(gval, gval_size, &hp, &MSO(BIF_P));
+                    tuple = TUPLE2(hp, gval_copy, make_small(gval_size)); hp += 3;
                 }
-
-                gval_copy = copy_struct(gval, gval_size, &hp, &MSO(BIF_P));
-                tuple = TUPLE2(hp, gval_copy, make_small(gval_size)); hp += 3;
                 result = CONS(hp, tuple, result); hp += 2;
             }
             g_ptr++;
@@ -4567,16 +4578,26 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
             if(is_thing(gval)) {
                 gval_size = size_object(gval);
 
-                if(hp + gval_size + 3 + 2 >= hp_end) {
-                    Uint alloc_ahead_new = alloc_ahead;
-                    while(gval_size + 3 + 2 >= alloc_ahead_new)
-                        alloc_ahead_new += alloc_ahead;
+                if(BIF_P == p) {
+                    if(hp + 5 >= hp_end) {
+                        hp = HAlloc(BIF_P, alloc_ahead);
+                        hp_end = hp + alloc_ahead;
+                    }
 
-                    hp = HAlloc(BIF_P, alloc_ahead_new);
-                    hp_end = hp + alloc_ahead_new;
+                    tuple = TUPLE2(hp, gval, make_small(gval_size)); hp += 3;
+                } else {
+                    if(hp + gval_size + 5 >= hp_end) {
+                        Uint alloc_ahead_new = alloc_ahead;
+                        while(gval_size + 5 >= alloc_ahead_new)
+                            alloc_ahead_new += alloc_ahead;
+
+                        hp = HAlloc(BIF_P, alloc_ahead_new);
+                        hp_end = hp + alloc_ahead_new;
+                    }
+
+                    gval_copy = copy_struct(gval, gval_size, &hp, &MSO(BIF_P));
+                    tuple = TUPLE2(hp, gval_copy, make_small(gval_size)); hp += 3;
                 }
-                gval_copy = copy_struct(gval, gval_size, &hp, &MSO(BIF_P));
-                tuple = TUPLE2(hp, gval_copy, make_small(gval_size)); hp += 3;
                 result = CONS(hp, tuple, result); hp += 2;
             }
         }
@@ -4598,7 +4619,7 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
 // FIXME: import this function properly from erl_gc.c
 #define ALENGTH(a) (sizeof(a)/sizeof(a[0]))
 
-static Uint setup_rootset(Process *p, Eterm *objv, int nobj, Rootset *rootset)
+static Uint setup_rootset(Process *p, Rootset *rootset)
 {
     Uint avail;
     Roots* roots;
@@ -4616,11 +4637,6 @@ static Uint setup_rootset(Process *p, Eterm *objv, int nobj, Rootset *rootset)
     if (p->dictionary != NULL) {
         roots[n].v = p->dictionary->data;
         roots[n].sz = p->dictionary->used;
-        ++n;
-    }
-    if (nobj > 0) {
-        roots[n].v  = objv;
-        roots[n].sz = nobj;
         ++n;
     }
 
