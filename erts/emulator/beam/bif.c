@@ -4480,7 +4480,7 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     Rootset rootset;            /* Rootset for GC (stack, dictionary, etc). */
     Roots* roots;
     Eterm* n_htop;
-    Uint n, i;
+    Uint n, alloc_ahead = 100;
     Eterm* ptr;
     Eterm val, gval;
     char* heap;
@@ -4490,7 +4490,6 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     Eterm pid = BIF_ARG_1;
     Eterm result = NIL;
     Eterm *hp, *hp_end;
-    Uint max = 5;
 
     // at first we need to obtain a pointer to the process structure
     if (is_external_pid(pid)
@@ -4522,9 +4521,8 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     mature_size = (char *) HIGH_WATER(p) - heap;
     old_htop = OLD_HTOP(p);
 
-    hp = HAlloc(BIF_P, max*2);
-    hp_end = hp + max*2;
-    i = 0;
+    hp = HAlloc(BIF_P, alloc_ahead);
+    hp_end = hp + alloc_ahead;
 
     // At first we need to build up a rootset for the process
     n = setup_rootset(p, NULL, 0, &rootset);
@@ -4543,16 +4541,17 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
         roots++;
 
         while(g_sz--) {
-            i++;
             gval = *g_ptr;
             switch(primary_tag(gval)) {
             case TAG_PRIMARY_LIST:
             case TAG_PRIMARY_BOXED:
-                erts_fprintf(stderr, "Adding an item to the list\n");
+                if(hp == hp_end) {
+                    hp = HAlloc(BIF_P, alloc_ahead);
+                    hp_end = hp + alloc_ahead;
+                }
+
                 result = CONS(hp, gval, result);
                 hp += 2;
-                if(i == max)
-                    break;
             }
             g_ptr++;
         }
