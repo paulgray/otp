@@ -39,6 +39,8 @@
 #include "erl_thr_progress.h"
 #include "erl_gc.h"
 
+static BIF_RETTYPE inspect_heap_trap(BIF_ALIST_3);
+
 static Export* flush_monitor_message_trap = NULL;
 static Export* set_cpu_topology_trap = NULL;
 static Export* await_proc_exit_trap = NULL;
@@ -4356,6 +4358,7 @@ erts_bif_prep_await_proc_exit_apply_trap(Process *c_p,
 }
 
 Export bif_return_trap_export;
+Export heap_inspect_trap_export;
 
 void erts_init_bif(void)
 {
@@ -4383,6 +4386,14 @@ void erts_init_bif(void)
 #endif
     bif_return_trap_export.code[3] = (BeamInstr) em_apply_bif;
     bif_return_trap_export.code[4] = (BeamInstr) &bif_return_trap;
+
+    sys_memset((void *) &heap_inspect_trap_export, 0, sizeof(Export));
+    heap_inspect_trap_export.address = &heap_inspect_trap_export.code[3];
+    heap_inspect_trap_export.code[0] = am_erlang;
+    heap_inspect_trap_export.code[1] = am_atom_put("inspect_heap_trap", 17);
+    heap_inspect_trap_export.code[2] = 3;
+    heap_inspect_trap_export.code[3] = (BeamInstr) em_apply_bif;
+    heap_inspect_trap_export.code[4] = (BeamInstr) &inspect_heap_trap;
 
     flush_monitor_message_trap = erts_export_put(am_erlang,
 						 am_flush_monitor_message,
@@ -4485,6 +4496,7 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     Eterm pid = BIF_ARG_1;
     Eterm result = NIL;
     Eterm *hp, *hp_end;
+    Eterm bp, bheap_ptr;
 
     // at first we need to obtain a pointer to the process structure
     if (is_external_pid(pid)
@@ -4566,20 +4578,52 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
             g_ptr++;
         }
     }
+    HRelease(BIF_P, hp_end, hp);
 
     // as a second step perform iteration on the heap
+    bheap_ptr = new_binary(BIF_P, (byte *) &heap_ptr, sizeof(Eterm *));
+    bp = new_binary(BIF_P, (byte *) &p, sizeof(Process *));
+
+    BIF_TRAP3(&heap_inspect_trap_export, BIF_P, bp, bheap_ptr, result);
+}
+
+static BIF_RETTYPE inspect_heap_trap(BIF_ALIST_3) {
+    int max_iter = 10 * CONTEXT_REDS;
+    Eterm gval, gval_copy, tuple, result = BIF_ARG_3;
+    Eterm *hp, *hp_end;
+    Uint alloc_ahead = 100;
+    Process *p = *((Process **)binary_bytes(BIF_ARG_1));
+    Eterm *heap_ptr = *((Eterm **)binary_bytes(BIF_ARG_2));
+    Eterm *heap_top = (Eterm *) HEAP_TOP(p);
+
+    hp = HAlloc(BIF_P, alloc_ahead);
+    hp_end = hp + alloc_ahead;
+
     while(heap_ptr != heap_top) {
         ASSERT(heap_ptr < heap_top);
+
+        if(--max_iter < 0) {
+            Eterm bheap_ptr_new;
+
+            HRelease(BIF_P, hp_end, hp);
+            BUMP_ALL_REDS(BIF_P);
+
+            bheap_ptr_new = new_binary(BIF_P, (byte *) &heap_ptr, sizeof(Eterm *));
+            BIF_TRAP3(&heap_inspect_trap_export, BIF_P, BIF_ARG_1, bheap_ptr_new, result);
+        }
 
         gval = *heap_ptr;
         switch (primary_tag(gval)) {
         case TAG_PRIMARY_LIST:
         case TAG_PRIMARY_BOXED:
             if(is_thing(gval)) {
-                gval_size = size_object(gval);
+                Uint gval_size = size_object(gval);
+                max_iter -= gval_size >> 2;
 
                 if(BIF_P == p) {
                     if(hp + 5 >= hp_end) {
+                        HRelease(BIF_P, hp_end, hp);
+
                         hp = HAlloc(BIF_P, alloc_ahead);
                         hp_end = hp + alloc_ahead;
                     }
@@ -4587,12 +4631,10 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
                     tuple = TUPLE2(hp, gval, make_small(gval_size)); hp += 3;
                 } else {
                     if(hp + gval_size + 5 >= hp_end) {
-                        Uint alloc_ahead_new = alloc_ahead;
-                        while(gval_size + 5 >= alloc_ahead_new)
-                            alloc_ahead_new += alloc_ahead;
+                        HRelease(BIF_P, hp_end, hp);
 
-                        hp = HAlloc(BIF_P, alloc_ahead_new);
-                        hp_end = hp + alloc_ahead_new;
+                        hp = HAlloc(BIF_P, alloc_ahead + gval_size);
+                        hp_end = hp + alloc_ahead + gval_size;
                     }
 
                     gval_copy = copy_struct(gval, gval_size, &hp, &MSO(BIF_P));
@@ -4601,8 +4643,11 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
                 result = CONS(hp, tuple, result); hp += 2;
             }
         }
+
         heap_ptr++;
     }
+
+    HRelease(BIF_P, hp_end, hp);
 
 #ifdef ERTS_SMP
     if(BIF_P != p) {
@@ -4611,8 +4656,6 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     }
 #endif
 
-    // release unused memory allocated in advanced
-    HRelease(BIF_P, hp_end, hp);
     BIF_RET(result);
 }
 
