@@ -4490,12 +4490,12 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     Process *p;
     Rootset rootset;
     Roots *roots;
-    Uint n, alloc_ahead = 100, gval_size;
+    Uint n, gval_size;
     Eterm gval, gval_copy, tuple;
-    Eterm *heap_ptr, *heap_top;
+    Eterm *heap_ptr;
     Eterm pid = BIF_ARG_1;
     Eterm result = NIL;
-    Eterm *hp, *hp_end;
+    Eterm *hp;
     Eterm bp, bheap_ptr;
 
     // at first we need to obtain a pointer to the process structure
@@ -4527,11 +4527,6 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
     // we end up with an infinite loop, when adding new items on the
     // heap and inspecting them a second later
     heap_ptr = (Eterm *) HEAP_START(p);
-    heap_top = (Eterm *) HEAP_TOP(p);
-
-    // TODO - check if we should not use heap_top here as well
-    hp = HAlloc(BIF_P, alloc_ahead);
-    hp_end = hp + alloc_ahead;
 
     // At first we need to build up a rootset for the process
     n = setup_rootset(p, &rootset);
@@ -4552,25 +4547,14 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
                 gval_size = size_object(gval);
 
                 if(BIF_P == p) {
-                    // we are asking about ourselves, there is no need
-                    // to copy the objects to our heap
-                    if(hp + 5 >= hp_end) {
-                        hp = HAlloc(BIF_P, alloc_ahead);
-                        hp_end = hp + alloc_ahead;
-                    }
+                    hp = HAlloc(BIF_P, 3+2);
 
                     tuple = TUPLE2(hp, gval, make_small(gval_size)); hp += 3;
                 } else {
-                    if(hp + gval_size + 5 >= hp_end) {
-                        Uint alloc_ahead_new = alloc_ahead;
-                        while(gval_size + 5 >= alloc_ahead_new)
-                            alloc_ahead_new += alloc_ahead;
+                    gval_copy = copy_object(gval, BIF_P);
 
-                        hp = HAlloc(BIF_P, alloc_ahead_new);
-                        hp_end = hp + alloc_ahead_new;
-                    }
+                    hp = HAlloc(BIF_P, 3+2);
 
-                    gval_copy = copy_struct(gval, gval_size, &hp, &MSO(BIF_P));
                     tuple = TUPLE2(hp, gval_copy, make_small(gval_size)); hp += 3;
                 }
                 result = CONS(hp, tuple, result); hp += 2;
@@ -4578,7 +4562,6 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
             g_ptr++;
         }
     }
-    HRelease(BIF_P, hp_end, hp);
 
     // as a second step perform iteration on the heap
     bheap_ptr = new_binary(BIF_P, (byte *) &heap_ptr, sizeof(Eterm *));
@@ -4590,25 +4573,18 @@ BIF_RETTYPE inspect_heap_1(BIF_ALIST_1)
 static BIF_RETTYPE inspect_heap_trap(BIF_ALIST_3) {
     int max_iter = 10 * CONTEXT_REDS;
     Eterm gval, gval_copy, tuple, result = BIF_ARG_3;
-    Eterm *hp, *hp_end;
-    Uint alloc_ahead = 100;
+    Eterm *hp;
     Process *p = *((Process **)binary_bytes(BIF_ARG_1));
     Eterm *heap_ptr = *((Eterm **)binary_bytes(BIF_ARG_2));
     Eterm *heap_top = (Eterm *) HEAP_TOP(p);
-
-    hp = HAlloc(BIF_P, alloc_ahead);
-    hp_end = hp + alloc_ahead;
 
     while(heap_ptr != heap_top) {
         ASSERT(heap_ptr < heap_top);
 
         if(--max_iter < 0) {
-            Eterm bheap_ptr_new;
+            Eterm bheap_ptr_new = new_binary(BIF_P, (byte *) &heap_ptr, sizeof(Eterm *));
 
-            HRelease(BIF_P, hp_end, hp);
             BUMP_ALL_REDS(BIF_P);
-
-            bheap_ptr_new = new_binary(BIF_P, (byte *) &heap_ptr, sizeof(Eterm *));
             BIF_TRAP3(&heap_inspect_trap_export, BIF_P, BIF_ARG_1, bheap_ptr_new, result);
         }
 
@@ -4621,23 +4597,13 @@ static BIF_RETTYPE inspect_heap_trap(BIF_ALIST_3) {
                 max_iter -= gval_size >> 2;
 
                 if(BIF_P == p) {
-                    if(hp + 5 >= hp_end) {
-                        HRelease(BIF_P, hp_end, hp);
-
-                        hp = HAlloc(BIF_P, alloc_ahead);
-                        hp_end = hp + alloc_ahead;
-                    }
+                    hp = HAlloc(BIF_P, 3+2);
 
                     tuple = TUPLE2(hp, gval, make_small(gval_size)); hp += 3;
                 } else {
-                    if(hp + gval_size + 5 >= hp_end) {
-                        HRelease(BIF_P, hp_end, hp);
+                    gval_copy = copy_object(gval, BIF_P);
+                    hp = HAlloc(BIF_P, 3+2);
 
-                        hp = HAlloc(BIF_P, alloc_ahead + gval_size);
-                        hp_end = hp + alloc_ahead + gval_size;
-                    }
-
-                    gval_copy = copy_struct(gval, gval_size, &hp, &MSO(BIF_P));
                     tuple = TUPLE2(hp, gval_copy, make_small(gval_size)); hp += 3;
                 }
                 result = CONS(hp, tuple, result); hp += 2;
@@ -4646,8 +4612,6 @@ static BIF_RETTYPE inspect_heap_trap(BIF_ALIST_3) {
 
         heap_ptr++;
     }
-
-    HRelease(BIF_P, hp_end, hp);
 
 #ifdef ERTS_SMP
     if(BIF_P != p) {
